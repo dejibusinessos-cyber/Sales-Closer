@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TK Store — WhatsApp AI Closer</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --border: #e2e4e9;
+    --text: #1c1e21;
+    --muted: #6b7280;
+    --accent: #16a34a;
+    --accent-dark: #15803d;
+    --customer-bubble: #ffffff;
+    --ai-bubble: #dcf8c6;
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+  }
+  #sidebar {
+    width: 320px;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+  }
+  #sidebar header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  #sidebar h1 {
+    font-size: 16px;
+    margin: 0;
+  }
+  #sidebar h1 span {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: normal;
+    margin-top: 2px;
+  }
+  #conversation-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .conv-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .conv-item:hover { background: #f9fafb; }
+  .conv-item.active { background: #eef7ee; }
+  .conv-item .name {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .conv-item .phone {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .conv-item .preview {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-top: 4px;
+  }
+  .badge.auto { background: #dcfce7; color: var(--accent-dark); }
+  .badge.manual { background: #fef3c7; color: #92400e; }
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  #main-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  #main-header .who .name { font-weight: 600; }
+  #main-header .who .phone { font-size: 12px; color: var(--muted); }
+  #auto-toggle-label {
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #thread {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .bubble {
+    max-width: 60%;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 14px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .bubble.customer {
+    align-self: flex-start;
+    background: var(--customer-bubble);
+    border: 1px solid var(--border);
+  }
+  .bubble.ai {
+    align-self: flex-end;
+    background: var(--ai-bubble);
+  }
+  .bubble .meta {
+    display: block;
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  #pending-box {
+    margin: 0 16px 12px;
+    padding: 12px;
+    border: 1px dashed var(--accent);
+    border-radius: 8px;
+    background: #f0fdf4;
+    font-size: 14px;
+    display: none;
+  }
+  #pending-box .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--accent-dark);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  #pending-box .actions {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+  }
+  #compose {
+    display: flex;
+    gap: 8px;
+    padding: 16px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  #compose textarea {
+    flex: 1;
+    resize: none;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 14px;
+    height: 44px;
+  }
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  button.primary { background: var(--accent); color: white; }
+  button.primary:hover { background: var(--accent-dark); }
+  button.secondary { background: #e5e7eb; color: var(--text); }
+  button.secondary:hover { background: #d1d5db; }
+  #empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  #error-banner {
+    display: none;
+    background: #fee2e2;
+    color: var(--danger);
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+  <div id="sidebar">
+    <header>
+      <h1>TK Store<span>WhatsApp AI Closer</span></h1>
+    </header>
+    <div id="conversation-list"></div>
+  </div>
+
+  <div id="main">
+    <div id="error-banner"></div>
+    <div id="empty-state">Select a conversation</div>
+    <div id="conversation-view" style="display:none; flex:1; flex-direction:column; min-height:0;">
+      <div id="main-header">
+        <div class="who">
+          <div class="name" id="header-name"></div>
+          <div class="phone" id="header-phone"></div>
+        </div>
+        <label id="auto-toggle-label">
+          <input type="checkbox" id="auto-toggle" />
+          Auto-reply
+        </label>
+      </div>
+      <div id="thread"></div>
+      <div id="pending-box">
+        <div class="label">Suggested reply (not sent yet)</div>
+        <div id="pending-text"></div>
+        <div class="actions">
+          <button class="primary" id="approve-btn">Approve &amp; Send</button>
+          <button class="secondary" id="edit-btn">Edit</button>
+        </div>
+      </div>
+      <div id="compose">
+        <textarea id="compose-text" placeholder="Type a reply…"></textarea>
+        <button class="primary" id="send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  function escapeHtml(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  const state = {
+    conversations: [],
+    selectedPhone: null,
+  };
+
+  const el = {
+    list: document.getElementById('conversation-list'),
+    emptyState: document.getElementById('empty-state'),
+    view: document.getElementById('conversation-view'),
+    headerName: document.getElementById('header-name'),
+    headerPhone: document.getElementById('header-phone'),
+    autoToggle: document.getElementById('auto-toggle'),
+    thread: document.getElementById('thread'),
+    pendingBox: document.getElementById('pending-box'),
+    pendingText: document.getElementById('pending-text'),
+    approveBtn: document.getElementById('approve-btn'),
+    editBtn: document.getElementById('edit-btn'),
+    composeText: document.getElementById('compose-text'),
+    sendBtn: document.getElementById('send-btn'),
+    errorBanner: document.getElementById('error-banner'),
+  };
+
+  function showError(msg) {
+    el.errorBanner.textContent = msg;
+    el.errorBanner.style.display = 'block';
+    setTimeout(() => { el.errorBanner.style.display = 'none'; }, 5000);
+  }
+
+  async function api(path, options) {
+    const res = await fetch('/api' + path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || ('Request failed: ' + res.status));
+    }
+    return res.json();
+  }
+
+  function formatTime(ts) {
+    try {
+      return new Date(ts).toLocaleString();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function renderList() {
+    el.list.innerHTML = state.conversations.map((c) => {
+      const lastMsg = c.messages[c.messages.length - 1];
+      const preview = lastMsg ? escapeHtml(lastMsg.text) : '';
+      const activeClass = c.phone === state.selectedPhone ? ' active' : '';
+      const badge = c.auto_reply
+        ? '<span class="badge auto">Auto</span>'
+        : '<span class="badge manual">Manual</span>';
+      return `
+        <div class="conv-item${activeClass}" data-phone="${escapeHtml(c.phone)}">
+          <div class="name">${escapeHtml(c.name || c.phone)}</div>
+          <div class="phone">${escapeHtml(c.phone)}</div>
+          <div class="preview">${preview}</div>
+          ${badge}
+        </div>
+      `;
+    }).join('');
+
+    el.list.querySelectorAll('.conv-item').forEach((node) => {
+      node.addEventListener('click', () => selectConversation(node.dataset.phone));
+    });
+  }
+
+  function renderThread(convo) {
+    el.headerName.textContent = convo.name || convo.phone;
+    el.headerPhone.textContent = convo.phone;
+    el.autoToggle.checked = !!convo.auto_reply;
+
+    el.thread.innerHTML = convo.messages.map((m) => {
+      const cls = m.role === 'customer' ? 'customer' : 'ai';
+      const modeLabel = m.mode ? ` · ${escapeHtml(m.mode)}` : '';
+      return `
+        <div class="bubble ${cls}">
+          ${escapeHtml(m.text)}
+          <span class="meta">${formatTime(m.ts)}${modeLabel}</span>
+        </div>
+      `;
+    }).join('');
+    el.thread.scrollTop = el.thread.scrollHeight;
+
+    if (convo.pending_reply) {
+      el.pendingBox.style.display = 'block';
+      el.pendingText.textContent = convo.pending_reply;
+    } else {
+      el.pendingBox.style.display = 'none';
+    }
+  }
+
+  async function selectConversation(phone) {
+    state.selectedPhone = phone;
+    el.emptyState.style.display = 'none';
+    el.view.style.display = 'flex';
+    renderList();
+    try {
+      const { conversation } = await api('/conversations/' + encodeURIComponent(phone));
+      renderThread(conversation);
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function refreshList() {
+    try {
+      const { conversations } = await api('/conversations');
+      state.conversations = conversations;
+      renderList();
+      if (state.selectedPhone) {
+        const current = conversations.find((c) => c.phone === state.selectedPhone);
+        if (current) renderThread(current);
+      }
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  el.autoToggle.addEventListener('change', async () => {
+    if (!state.selectedPhone) return;
+    try {
+      await api('/conversations/' + encodeURIComponent(state.selectedPhone) + '/auto-reply', {
+        method: 'POST',
+        body: JSON.stringify({ auto_reply: el.autoToggle.checked }),
+      });
+      refreshList();
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+
+  el.approveBtn.addEventListener('click', async () => {
+    if (!state.selectedPhone) return;
+    try {
+      await api('/conversations/' + encodeURIComponent(state.selectedPhone) + '/reply', {
+        method: 'POST',
+        body: JSON.stringify({ text: el.pendingText.textContent }),
+      });
+      refreshList();
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+
+  el.editBtn.addEventListener('click', () => {
+    el.composeText.value = el.pendingText.textContent;
+    el.composeText.focus();
+  });
+
+  el.sendBtn.addEventListener('click', async () => {
+    if (!state.selectedPhone) return;
+    const text = el.composeText.value.trim();
+    if (!text) return;
+    try {
+      await api('/conversations/' + encodeURIComponent(state.selectedPhone) + '/reply', {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      });
+      el.composeText.value = '';
+      refreshList();
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+
+  refreshList();
+  setInterval(refreshList, 4000);
+</script>
+</body>
+</html>
