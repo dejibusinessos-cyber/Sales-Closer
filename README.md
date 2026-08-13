@@ -92,6 +92,23 @@ local testing) and you know its public URL:
    challenge; the server answers it automatically if the token matches.
 5. Under **Webhook fields**, subscribe to `messages`.
 
+### Supabase (`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`)
+
+Conversations are stored in Supabase Postgres.
+
+1. Create a project at [app.supabase.com](https://app.supabase.com) (or use
+   an existing one).
+2. Open the **SQL Editor** and run the migration in
+   [`supabase/migrations/001_create_conversations.sql`](supabase/migrations/001_create_conversations.sql)
+   to create the `conversations` table.
+3. Go to **Project Settings → API**. Copy the **Project URL** into
+   `SUPABASE_URL`, and the **service_role** secret key (not the `anon` key —
+   this server needs to bypass row-level security) into
+   `SUPABASE_SERVICE_KEY`.
+
+The `service_role` key has full read/write access to your database. Keep it
+out of any client-side code — it's only ever used by this backend.
+
 ### Dashboard protection
 
 **`DASHBOARD_USER`** / **`DASHBOARD_PASSWORD`** — pick any username/password
@@ -99,12 +116,6 @@ yourself. These gate the dashboard and its API with HTTP Basic Auth. Leave
 both blank only while developing locally; the server treats blank as "auth
 disabled," which is not safe for anything public-facing (the dashboard can
 read customer conversations and send messages on the store's behalf).
-
-## What's still manual
-
-Supabase-backed persistent storage isn't wired up yet — conversations
-currently live in an in-memory `Map` and are lost on restart. That's tracked
-separately; don't point this at real customer traffic until it's done.
 
 ## Deploying to Render
 

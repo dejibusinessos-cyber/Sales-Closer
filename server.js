@@ -4,6 +4,7 @@ const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
+const { getConversation, getOrCreateConversation, saveConversation, listConversations } = require('./store');
 
 const {
   PORT = 3000,
@@ -78,34 +79,14 @@ When you present or reinforce an offer, draw on whichever of these fit naturally
 Respond with only the WhatsApp message text itself. No preamble, no labels, no explanation of your reasoning.`;
 
 // ---------------------------------------------------------------------------
-// Conversation store (in-memory Map — beta shortcut, see Task 2 for Supabase)
+// Conversation store — backed by Supabase (see store.js)
 // ---------------------------------------------------------------------------
-const conversations = new Map();
-
-function getOrCreateConversation(phone, name) {
-  if (!conversations.has(phone)) {
-    conversations.set(phone, {
-      phone,
-      name: name || null,
-      product: null,
-      auto_reply: false,
-      pending_reply: null,
-      messages: [],
-      updated_at: new Date().toISOString(),
-    });
+async function safeSaveConversation(convo) {
+  try {
+    await saveConversation(convo);
+  } catch (err) {
+    logError(`Failed to save conversation for ${maskPhone(convo.phone)}`, err);
   }
-  return conversations.get(phone);
-}
-
-function saveConversation(convo) {
-  convo.updated_at = new Date().toISOString();
-  conversations.set(convo.phone, convo);
-}
-
-function listConversations() {
-  return Array.from(conversations.values()).sort(
-    (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -193,7 +174,13 @@ function verifyWebhookSignature(req) {
 }
 
 async function handleIncomingMessage(phone, name, text) {
-  const convo = getOrCreateConversation(phone, name);
+  let convo;
+  try {
+    convo = await getOrCreateConversation(phone, name);
+  } catch (err) {
+    logError(`Failed to load conversation for ${maskPhone(phone)}`, err);
+    return;
+  }
   if (name && !convo.name) convo.name = name;
 
   convo.messages.push({ role: 'customer', text, ts: new Date().toISOString() });
@@ -204,7 +191,7 @@ async function handleIncomingMessage(phone, name, text) {
     draft = await generateAIReply(convo);
   } catch (err) {
     logError(`Anthropic API error generating reply for ${maskPhone(phone)}`, err);
-    saveConversation(convo);
+    await safeSaveConversation(convo);
     return;
   }
 
@@ -222,7 +209,7 @@ async function handleIncomingMessage(phone, name, text) {
     convo.pending_reply = draft;
   }
 
-  saveConversation(convo);
+  await safeSaveConversation(convo);
 }
 
 async function processWebhookPayload(body) {
@@ -319,24 +306,30 @@ function asyncHandler(fn) {
 
 const apiRouter = express.Router();
 
-apiRouter.get('/conversations', (req, res) => {
-  res.json({ conversations: listConversations() });
-});
+apiRouter.get(
+  '/conversations',
+  asyncHandler(async (req, res) => {
+    res.json({ conversations: await listConversations() });
+  })
+);
 
-apiRouter.get('/conversations/:phone', (req, res) => {
-  const convo = conversations.get(req.params.phone);
-  if (!convo) return res.status(404).json({ error: 'conversation not found' });
-  res.json({ conversation: convo });
-});
+apiRouter.get(
+  '/conversations/:phone',
+  asyncHandler(async (req, res) => {
+    const convo = await getConversation(req.params.phone);
+    if (!convo) return res.status(404).json({ error: 'conversation not found' });
+    res.json({ conversation: convo });
+  })
+);
 
 apiRouter.post(
   '/conversations/:phone/auto-reply',
   asyncHandler(async (req, res) => {
-    const convo = conversations.get(req.params.phone);
+    const convo = await getConversation(req.params.phone);
     if (!convo) return res.status(404).json({ error: 'conversation not found' });
 
     convo.auto_reply = !!req.body.auto_reply;
-    saveConversation(convo);
+    await saveConversation(convo);
     res.json({ ok: true, conversation: convo });
   })
 );
@@ -348,7 +341,7 @@ apiRouter.post(
     const text = typeof req.body.text === 'string' ? req.body.text.trim() : '';
     if (!text) return res.status(400).json({ error: 'text is required' });
 
-    const convo = conversations.get(phone);
+    const convo = await getConversation(phone);
     if (!convo) return res.status(404).json({ error: 'conversation not found' });
 
     try {
@@ -360,7 +353,7 @@ apiRouter.post(
 
     convo.messages.push({ role: 'ai', text, ts: new Date().toISOString(), mode: 'manual-approved' });
     convo.pending_reply = null;
-    saveConversation(convo);
+    await saveConversation(convo);
     logInfo(`Manual reply sent to ${maskPhone(phone)}: "${truncate(text)}"`);
 
     res.json({ ok: true, conversation: convo });
