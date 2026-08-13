@@ -200,7 +200,7 @@ async function handleIncomingMessage(phone, name, text) {
       await sendWhatsAppMessage(phone, draft);
       convo.messages.push({ role: 'ai', text: draft, ts: new Date().toISOString(), mode: 'auto' });
       convo.pending_reply = null;
-      logInfo(`Auto reply sent to ${maskPhone(phone)}: "${truncate(draft)}"`);
+      logInfo(`Outbound reply to ${maskPhone(phone)} (mode=auto): "${truncate(draft)}"`);
     } catch (err) {
       logError(`WhatsApp send error (auto reply) for ${maskPhone(phone)}`, err);
       convo.pending_reply = draft; // fall back to manual approval if the send failed
@@ -354,7 +354,7 @@ apiRouter.post(
     convo.messages.push({ role: 'ai', text, ts: new Date().toISOString(), mode: 'manual-approved' });
     convo.pending_reply = null;
     await saveConversation(convo);
-    logInfo(`Manual reply sent to ${maskPhone(phone)}: "${truncate(text)}"`);
+    logInfo(`Outbound reply to ${maskPhone(phone)} (mode=manual-approved): "${truncate(text)}"`);
 
     res.json({ ok: true, conversation: convo });
   })
