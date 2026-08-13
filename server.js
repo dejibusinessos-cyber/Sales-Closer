@@ -173,7 +173,7 @@ function verifyWebhookSignature(req) {
   return crypto.timingSafeEqual(sigBuf, expBuf);
 }
 
-async function handleIncomingMessage(phone, name, text) {
+async function handleIncomingMessage(phone, name, text, waMessageId) {
   let convo;
   try {
     convo = await getOrCreateConversation(phone, name);
@@ -183,7 +183,14 @@ async function handleIncomingMessage(phone, name, text) {
   }
   if (name && !convo.name) convo.name = name;
 
-  convo.messages.push({ role: 'customer', text, ts: new Date().toISOString() });
+  // Meta can redeliver the same message (slow ack, network retry). Without this,
+  // a retry would re-run the whole reply flow and could double-text the customer.
+  if (waMessageId && convo.messages.some((m) => m.wa_message_id === waMessageId)) {
+    logInfo(`Skipping duplicate webhook delivery for ${maskPhone(phone)} (wa_message_id=${waMessageId})`);
+    return;
+  }
+
+  convo.messages.push({ role: 'customer', text, ts: new Date().toISOString(), wa_message_id: waMessageId });
   logInfo(`Incoming message from ${maskPhone(phone)}: "${truncate(text)}"`);
 
   let draft;
@@ -191,6 +198,12 @@ async function handleIncomingMessage(phone, name, text) {
     draft = await generateAIReply(convo);
   } catch (err) {
     logError(`Anthropic API error generating reply for ${maskPhone(phone)}`, err);
+    await safeSaveConversation(convo);
+    return;
+  }
+
+  if (!draft) {
+    logError(`Claude returned an empty reply for ${maskPhone(phone)}, leaving conversation for manual handling`, null);
     await safeSaveConversation(convo);
     return;
   }
@@ -223,11 +236,16 @@ async function processWebhookPayload(body) {
       const name = contact.profile && contact.profile.name;
 
       for (const msg of value.messages) {
-        if (msg.type !== 'text') {
-          logInfo(`Skipping non-text message (type=${msg.type}) from ${maskPhone(msg.from)}`);
-          continue;
+        try {
+          if (msg.type !== 'text' || !msg.text) {
+            logInfo(`Skipping non-text message (type=${msg.type}) from ${maskPhone(msg.from)}`);
+            continue;
+          }
+          await handleIncomingMessage(msg.from, name, msg.text.body, msg.id);
+        } catch (err) {
+          // Isolate one malformed/failed message so the rest of the batch still processes.
+          logError(`Failed to handle message from ${maskPhone(msg.from)}`, err);
         }
-        await handleIncomingMessage(msg.from, name, msg.text.body);
       }
     }
   }
@@ -275,6 +293,18 @@ app.post('/webhook', (req, res) => {
   });
 });
 
+// Platform health checks (Render, etc.) hit this unauthenticated — must be
+// registered before requireDashboardAuth or every probe gets a 401 and the
+// platform will conclude the service is down.
+app.get('/health', (req, res) => res.json({ ok: true }));
+
+function timingSafeStringEqual(a, b) {
+  const aBuf = Buffer.from(String(a));
+  const bBuf = Buffer.from(String(b));
+  if (aBuf.length !== bBuf.length) return false;
+  return crypto.timingSafeEqual(aBuf, bBuf);
+}
+
 function requireDashboardAuth(req, res, next) {
   if (!DASHBOARD_USER || !DASHBOARD_PASSWORD) return next(); // not configured — local dev only
 
@@ -286,10 +316,12 @@ function requireDashboardAuth(req, res, next) {
 
   const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
   const separatorIndex = decoded.indexOf(':');
-  const user = decoded.slice(0, separatorIndex);
-  const pass = decoded.slice(separatorIndex + 1);
+  const user = separatorIndex === -1 ? decoded : decoded.slice(0, separatorIndex);
+  const pass = separatorIndex === -1 ? '' : decoded.slice(separatorIndex + 1);
 
-  if (user === DASHBOARD_USER && pass === DASHBOARD_PASSWORD) return next();
+  if (timingSafeStringEqual(user, DASHBOARD_USER) && timingSafeStringEqual(pass, DASHBOARD_PASSWORD)) {
+    return next();
+  }
 
   res.set('WWW-Authenticate', 'Basic realm="TK Store Dashboard"');
   return res.status(401).send('Invalid credentials');
@@ -297,8 +329,6 @@ function requireDashboardAuth(req, res, next) {
 
 app.use(requireDashboardAuth);
 app.use(express.static(path.join(__dirname, 'public')));
-
-app.get('/health', (req, res) => res.json({ ok: true }));
 
 function asyncHandler(fn) {
   return (req, res, next) => fn(req, res, next).catch(next);
